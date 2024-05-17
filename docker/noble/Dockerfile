@@ -1,6 +1,9 @@
 # creates gobysoft/ubuntu-build-base:24.04.N
-FROM ubuntu:noble
- 
+# syntax=docker/dockerfile:1
+ARG distro=noble
+FROM --platform=linux/amd64 ubuntu:${distro}
+ARG distro=noble
+
 WORKDIR /root
 
 SHELL ["/bin/bash", "-c"]
@@ -21,8 +24,20 @@ ENV CROSS_COMPILE_ARCHS "arm64 armhf"
 # Allow us to install packages for cross-compiling architectures
 RUN ARCHS=(${CROSS_COMPILE_ARCHS}) && \
     ARCHS_LIST=$(IFS=,; echo "${ARCHS[*]}") && \
-    for ARCH in "${ARCHS[@]}"; do dpkg --add-architecture "$ARCH"; done && \
-    sed -i 's/deb /deb [arch=amd64] /' /etc/apt/sources.list && \
-    egrep "^deb " /etc/apt/sources.list | sed "s/amd64/${ARCHS_LIST}/" \
-        | sed 's|http://.*.ubuntu.com/ubuntu/|http://ports.ubuntu.com/|' \
-        >> /etc/apt/sources.list
+    for ARCH in "${ARCHS[@]}"; do dpkg --add-architecture "$ARCH"; done
+
+# Restrict archives.ubuntu.com to amd64
+RUN sed -i '/Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources 
+
+# Add entry for ports.ubuntu.com
+COPY <<EOF /etc/apt/sources.list.d/ubuntu-multiarch.sources
+Types: deb
+URIs: http://ports.ubuntu.com/
+Suites: ${distro} ${distro}-updates ${distro}-backports ${distro}-security
+Components: main universe restricted multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Architectures: ${CROSS_COMPILE_ARCHS}
+EOF
+
+# Check that is all works
+RUN apt-get update && rm -rf /var/lib/apt/lists/*
